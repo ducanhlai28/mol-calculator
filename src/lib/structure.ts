@@ -406,3 +406,74 @@ export function toMolfile(st: Struct): string {
   out.push('M  END')
   return out.join('\n')
 }
+
+// ——— Phần rời & nguyên tử vẽ chồng (kiểm tra hình từ Ketcher) ———
+
+/** Tách hình thành các phần không nối với nhau (mỗi phần là một phân tử / ion). */
+export function fragments(st: Struct): Struct[] {
+  const adj = new Map<number, number[]>(st.atoms.map((a) => [a.id, []]))
+  for (const b of st.bonds) {
+    adj.get(b.a)?.push(b.b)
+    adj.get(b.b)?.push(b.a)
+  }
+  const seen = new Set<number>()
+  const out: Struct[] = []
+  for (const a of st.atoms) {
+    if (seen.has(a.id)) continue
+    const ids = new Set<number>([a.id])
+    const stack = [a.id]
+    seen.add(a.id)
+    while (stack.length) {
+      for (const n of adj.get(stack.pop()!) ?? []) {
+        if (seen.has(n)) continue
+        seen.add(n)
+        ids.add(n)
+        stack.push(n)
+      }
+    }
+    out.push({ atoms: st.atoms.filter((x) => ids.has(x.id)), bonds: st.bonds.filter((b) => ids.has(b.a)) })
+  }
+  return out
+}
+
+/** Độ dài liên kết điển hình (trung vị) của hình, dùng làm thước đo. */
+function typicalBond(st: Struct): number {
+  const byId = new Map(st.atoms.map((a) => [a.id, a]))
+  const lens = st.bonds
+    .map((b) => {
+      const p = byId.get(b.a)
+      const q = byId.get(b.b)
+      return p && q ? Math.hypot(p.x - q.x, p.y - q.y) : 0
+    })
+    .filter((l) => l > 0)
+    .sort((x, y) => x - y)
+  return lens.length ? lens[Math.floor(lens.length / 2)] : 1
+}
+
+/**
+ * Gộp các nguyên tử cùng nguyên tố nằm chồng lên nhau (cách nhau < 15% độ dài liên kết) —
+ * thường do bấm vòng/liên kết trùng lên hình có sẵn. Liên kết trùng giữ bậc cao nhất.
+ */
+export function mergeOverlapping(st: Struct): { struct: Struct; merged: number } {
+  const tol = typicalBond(st) * 0.15
+  const keep = new Map<number, number>() // id → id được giữ lại
+  const kept: SAtom[] = []
+  for (const a of st.atoms) {
+    const twin = kept.find((k) => k.el === a.el && Math.hypot(k.x - a.x, k.y - a.y) < tol)
+    if (twin) keep.set(a.id, twin.id)
+    else {
+      keep.set(a.id, a.id)
+      kept.push(a)
+    }
+  }
+  const bonds = new Map<string, SBond>()
+  for (const b of st.bonds) {
+    const a = keep.get(b.a)!
+    const c = keep.get(b.b)!
+    if (a === c) continue
+    const k = a < c ? `${a}-${c}` : `${c}-${a}`
+    const prev = bonds.get(k)
+    if (!prev || b.o > prev.o) bonds.set(k, { ...b, a, b: c })
+  }
+  return { struct: { atoms: kept, bonds: [...bonds.values()] }, merged: st.atoms.length - kept.length }
+}

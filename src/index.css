@@ -1081,6 +1081,25 @@ tbody tr.selected {
   pointer-events: none;
   z-index: 1;
 }
+.frag-warn {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border-radius: 10px;
+  background: #fff5e0;
+}
+.frag-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.frag-actions .btn-outline {
+  white-space: normal;
+  height: auto;
+  min-height: 36px;
+  text-align: left;
+}
 .formula-box {
   background: var(--surface-2);
   border-radius: 12px;

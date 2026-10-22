@@ -5,7 +5,17 @@ import { fmt } from '../lib/calc'
 import { parseFormula, prettyFormula } from '../lib/formula'
 import { useI18n } from '../lib/i18n'
 import { cidBySmiles, compoundProps, formulaCandidates, type Candidate } from '../lib/pubchem'
-import { analyze, builtinStructure, hill, molarMassOfCounts, parseMolfile, toMolfile, type Struct } from '../lib/structure'
+import {
+  analyze,
+  builtinStructure,
+  fragments,
+  hill,
+  mergeOverlapping,
+  molarMassOfCounts,
+  parseMolfile,
+  toMolfile,
+  type Struct,
+} from '../lib/structure'
 import { names, SIG } from '../lib/ui'
 import { ErrorBoundary } from './ErrorBoundary'
 
@@ -103,6 +113,27 @@ export function Sketcher(p: Props) {
   const formula = hill(an.counts)
   const smiles = drawing.smiles
   const unknownAtom = struct.atoms.some((a) => !/^[A-Z][a-z]?$/.test(a.el)) || Number.isNaN(molarMassOfCounts(an.counts))
+  // Hình có nhiều phần rời / nguyên tử vẽ chồng → công thức là tổng của tất cả, dễ gây nhầm
+  const frags = fragments(struct)
+  const fragFormulas = frags.map((f) => hill(analyze(f).counts))
+  const overlap = mergeOverlapping(struct)
+  const largest = frags.reduce<Struct | null>((best, f) => (!best || f.atoms.length > best.atoms.length ? f : best), null)
+
+  const setStruct = async (st: Struct) => {
+    const k = ketcherRef.current
+    if (!k) return
+    try {
+      await k.setMolecule(toMolfile(st))
+    } catch (e) {
+      setError(String((e as Error).message ?? e))
+    }
+  }
+  const showAll = () => {
+    const k = ketcherRef.current
+    if (!k) return
+    k.editor.zoomAccordingContent(k.editor.struct())
+    k.editor.centerStruct()
+  }
 
   // Tra cấu trúc trên PubChem sau khi ngừng vẽ 0,6 s
   useEffect(() => {
@@ -230,6 +261,32 @@ export function Sketcher(p: Props) {
               {smiles && <div className="mono xsmall muted wrap">SMILES: {smiles}</div>}
               {unknownAtom && <div className="small warn-ink">{t('skUnknownAtom')}</div>}
             </div>
+
+            {overlap.merged > 0 && (
+              <div className="frag-warn">
+                <div className="small warn-ink">{t('overlapWarn', { n: overlap.merged })}</div>
+                <button type="button" className="btn-outline sm" onClick={() => setStruct(overlap.struct)}>
+                  {t('overlapMerge')}
+                </button>
+              </div>
+            )}
+            {frags.length > 1 && (
+              <div className="frag-warn">
+                <div className="small warn-ink">
+                  {t('fragWarn', { n: frags.length, list: fragFormulas.map((f) => prettyFormula(f)).join(' + ') })}
+                </div>
+                <div className="frag-actions">
+                  <button type="button" className="btn-outline sm" onClick={showAll}>
+                    {t('fragShowAll')}
+                  </button>
+                  {largest && (
+                    <button type="button" className="btn-outline sm" onClick={() => setStruct(largest)}>
+                      {t('fragKeepLargest', { f: prettyFormula(hill(analyze(largest).counts)) })}
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
 
             {hasExact && (
               <div className="match-group">

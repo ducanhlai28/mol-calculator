@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { COMMON_SUBSTANCES } from '../data/common-substances'
 import { calculate, fmt, molarVolume, parseNumber, sci, setNumberLocale } from './calc'
-import { analyze, builtinStructure, fromPubchemRecord, hill, parseMolfile, toMolfile } from './structure'
+import { analyze, builtinStructure, fragments, fromPubchemRecord, hill, mergeOverlapping, parseMolfile, toMolfile } from './structure'
 import { looksLikeFormula, molarMass, parseFormula, prettyFormula } from './formula'
 import { guessState, isValidCas, ISOTOPE_TITLE, parseDensityText } from './pubchem'
 import { findLocal } from './resolve'
@@ -155,6 +155,23 @@ describe('cấu tạo', () => {
     const st = parseMolfile(nacl)
     expect(st.atoms.map((a) => a.c)).toEqual([1, -1])
     expect(analyze(st).sig).toBe(analyze(builtinStructure('7647-14-5')!).sig)
+  })
+  it('phần rời và nguyên tử vẽ chồng', () => {
+    const benz = builtinStructure('71-43-2')!
+    // vòng benzen bị vẽ trùng đúng chỗ (id khác, cùng toạ độ) → 2 phần, C12H12
+    const dup = {
+      atoms: [...benz.atoms, ...benz.atoms.map((a) => ({ ...a, id: a.id + 100 }))],
+      bonds: [...benz.bonds, ...benz.bonds.map((b) => ({ ...b, id: b.id + 'd', a: b.a + 100, b: b.b + 100 }))],
+    }
+    expect(fragments(dup)).toHaveLength(2)
+    expect(hill(analyze(dup).counts)).toBe('C12H12')
+    const { struct, merged } = mergeOverlapping(dup)
+    expect(merged).toBe(6)
+    expect(fragments(struct)).toHaveLength(1)
+    expect(hill(analyze(struct).counts)).toBe('C6H6')
+    // ion rời (NaCl) không bị gộp
+    expect(mergeOverlapping(builtinStructure('7647-14-5')!).merged).toBe(0)
+    expect(fragments(builtinStructure('7647-14-5')!)).toHaveLength(2)
   })
   it('bản ghi 2D của PubChem (ethanol)', () => {
     const st = fromPubchemRecord({
